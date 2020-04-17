@@ -145,4 +145,4 @@ $wgHooks['UnknownAction'][] = 'WikiArticleFeeds::onUnknownAction';
 $wgHooks['ArticlePurge'][] = 'WikiArticleFeeds::onArticlePurge';
 
 $wgWikiArticleFeeds = new WikiArticleFeeds();
-$wgHooks['ParserBeforeTidy'][] = [ $wgWikiArticleFeeds, 'WikiArticleFeeds::itemTagsPlaceholderCorrections' ];
+$wgHooks['ParserAfterTidy'][] = [ $wgWikiArticleFeeds, 'itemTagsPlaceholderCorrections' ];
