@@ -1,4 +1,5 @@
 <?php
+
 /**
  * This file is part of WikiArticleFeeds
  *
@@ -322,11 +323,9 @@ class WikiArticleFeeds {
 		global $wgOut, $wgServer, $wgFeedClasses, $wgVersion;
 
 		# Setup, handle redirects
-		if ( $article->isRedirect() ) {
-			$rtitle = $article->getContentObject()->getRedirectTarget();
-			if ( $rtitle ) {
-				$article = new Article( $rtitle );
-			}
+		$rtitle = $article->getPage()->getRedirectTarget();
+		if ( $rtitle ) {
+			$article = new Article( $rtitle );
 		}
 		$title = $article->getTitle();
 		$feedUrl = $title->getFullURL();
