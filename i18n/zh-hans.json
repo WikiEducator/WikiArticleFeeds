@@ -4,11 +4,12 @@
 			"Liuxinyu970226",
 			"Wilsonmess",
 			"Yfdyh000",
-			"捍粵者"
+			"捍粵者",
+			"列维劳德"
 		]
 	},
 	"wikiarticlefeeds-desc": "为MediaWiki页面生成源",
 	"wikiarticlefeeds-tracking-category": "页面正在生成RSS源",
 	"wikiarticlefeeds-tracking-category-desc": "页面生成有RSS源。",
-	"wikiarticlefeeds_combined_description": "这复合源有多个源来源。"
+	"wikiarticlefeeds_combined_description": "这是一个复合源，包含多个源来源。"
 }
