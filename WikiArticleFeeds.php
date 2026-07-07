@@ -1,12 +1,13 @@
 <?php
 /**
  * WikiArticleFeeds.php - a MediaWiki extension for converting regular pages into feeds.
- * @author Jim R. Wilson, Thomas Gries
- * @maintainer Thomas Gries
+ * @author Jim R. Wilson, Thomas Gries, Jim Tittsler
+ * @maintainer Jim Tittsler
  *
- * @version 0.74
+ * @version 1.00
  * @copyright Copyright © 2007 Jim R. Wilson
  * @copyright Copyright © 2012 Thomas Gries
+ * @copyright Copyright © 2026 Jim Tittsler
  * @license The MIT License - http://www.opensource.org/licenses/mit-license.php
  *
  * Description
@@ -116,33 +117,12 @@
  *
  */
 
-# Create global instance
-$wgAutoloadClasses['WikiArticleFeeds'] = __DIR__ . '/WikiArticleFeeds_body.php';
+if ( !defined( 'MEDIAWIKI' ) ) {
+	die( "This file is an extension to the MediaWiki software and cannot be used standalone.\n" );
+}
 
-# Credits
-$wgExtensionCredits['specialpage'][] = [
-	'path' => __FILE__,
-	'name' => 'WikiArticleFeeds',
-	'license-name' => 'MIT',
-	'author' => [ 'Jim Wilson', 'Thomas Gries' ],
-	'url' => '//www.mediawiki.org/wiki/Extension:WikiArticleFeeds',
-	'descriptionmsg' => 'wikiarticlefeeds-desc',
-	'version' => WikiArticleFeeds::VERSION,
-];
-
-$wgMessagesDirs['WikiArticleFeeds'] = __DIR__ . '/i18n';
-$wgExtensionMessagesFiles['WikiArticleFeedsMagic'] = __DIR__ . '/WikiArticleFeeds.i18n.magic.php';
-
-# Tracking category listed on Special:TrackingCategories
-$wgTrackingCategories[] = 'wikiarticlefeeds-tracking-category';
-
-# Attach Hooks
-$wgHooks['ParserFirstCallInit'][] = 'WikiArticleFeeds::setup';
-$wgHooks['SkinTemplateToolboxEnd'][] = 'WikiArticleFeeds::addToolboxLinks';
-$wgHooks['OutputPageBeforeHTML'][] = 'WikiArticleFeeds::addWikiFeedHeaders';
-$wgHooks['LinkEnd'][] = 'WikiArticleFeeds::addSignatureMarker';
-$wgHooks['UnknownAction'][] = 'WikiArticleFeeds::onUnknownAction';
-$wgHooks['ArticlePurge'][] = 'WikiArticleFeeds::onArticlePurge';
-
-$wgWikiArticleFeeds = new WikiArticleFeeds();
-$wgHooks['ParserAfterTidy'][] = [ $wgWikiArticleFeeds, 'itemTagsPlaceholderCorrections' ];
+if ( function_exists( 'wfLoadExtension' ) ) {
+	wfLoadExtension( 'WikiArticleFeeds' );
+	// Initialize the legacy global instance so that other extensions referencing it don't break.
+	$wgWikiArticleFeeds = WikiArticleFeeds::getGlobalInstance();
+}

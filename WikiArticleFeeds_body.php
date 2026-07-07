@@ -24,7 +24,15 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 class WikiArticleFeeds {
-	const VERSION = '0.74.0 20170203';
+	const VERSION = '1.0.0 20260705';
+
+	public static function getGlobalInstance() {
+		global $wgWikiArticleFeeds;
+		if ( !$wgWikiArticleFeeds ) {
+			$wgWikiArticleFeeds = new self();
+		}
+		return $wgWikiArticleFeeds;
+	}
 
 	function feedStart( $text, $params = [], Parser $parser ) {
 		$parser->addTrackingCategory( 'wikiarticlefeeds-tracking-category' );
@@ -58,15 +66,19 @@ class WikiArticleFeeds {
 		return true;
 	}
 
-	# Sets up the WikiArticleFeeds Parser hooks
-	static function setup( Parser $parser ) {
-		global $wgWikiArticleFeeds;
+	public static function onParserAfterTidy( Parser $parser, &$text ) {
+		return self::getGlobalInstance()->itemTagsPlaceholderCorrections( $parser, $text );
+	}
 
-		$parser->setHook( 'startFeed', [ $wgWikiArticleFeeds, 'feedStart' ] );
-		$parser->setHook( 'endFeed', [ $wgWikiArticleFeeds, 'feedEnd' ] );
-		$parser->setHook( 'feedBurner', [ $wgWikiArticleFeeds, 'burnFeed' ] );
-		$parser->setHook( 'itemTags', [ $wgWikiArticleFeeds, 'itemTagsTag' ] );
-		$parser->setFunctionHook( 'itemtags', [ $wgWikiArticleFeeds, 'itemTagsFunction' ] );
+	# Sets up the WikiArticleFeeds Parser hooks
+	public static function setup( Parser $parser ) {
+		$instance = self::getGlobalInstance();
+
+		$parser->setHook( 'startFeed', [ $instance, 'feedStart' ] );
+		$parser->setHook( 'endFeed', [ $instance, 'feedEnd' ] );
+		$parser->setHook( 'feedBurner', [ $instance, 'burnFeed' ] );
+		$parser->setHook( 'itemTags', [ $instance, 'itemTagsTag' ] );
+		$parser->setFunctionHook( 'itemtags', [ $instance, 'itemTagsFunction' ] );
 
 		return true;
 	}
@@ -132,7 +144,7 @@ class WikiArticleFeeds {
 	 *
 	 * @see https://www.mediawiki.org/wiki/Manual:Hooks/LinkEnd
 	 */
-	public static function addSignatureMarker( $skin, Title $target, array $options, $text, array &$attribs, $ret ) {
+	public static function onHtmlPageLinkRendererEnd( $linkRenderer, $target, $isKnown, &$text, &$attribs, &$ret ) {
 		if ( $target->getNamespace() == NS_USER ) {
 			$attribs['data-userpage-link'] = 'true';
 		} elseif ( $target->getNamespace() == NS_USER_TALK ) {
@@ -208,93 +220,6 @@ class WikiArticleFeeds {
 	}
 
 	/**
-	 * Injects handling of the 'feed' action.
-	 *
-	 * @param string $action Handle to an action string (presumably same as global $action).
-	 * @param Article|WikiPage $article Article to be converted to RSS or Atom feed
-	 */
-	public static function onUnknownAction( $action, $article ) {
-		# If some other action is in the works, cut and run!
-		if ( $action != 'feed' ) {
-			return true;
-		}
-
-		global $wgRequest, $wgFeedClasses, $wgFeedCacheTimeout, $wgDBname,
-			$messageMemc;
-
-		# Get query parameters
-		$feedFormat = $wgRequest->getVal( 'feed', 'atom' );
-		$filterTags = $wgRequest->getVal( 'tags', null );
-
-		# Process requested tags for use in keys
-		if ( $filterTags ) {
-			$filterTags = explode( ',', $filterTags );
-			array_walk( $filterTags, 'trim' );
-			sort( $filterTags );
-		}
-
-		if ( !isset( $wgFeedClasses[$feedFormat] ) ) {
-			wfHttpError( 500, 'Internal Server Error', 'Unsupported feed type.' );
-			return false;
-		}
-
-		# Setup cache-checking vars
-		$title = $article->getTitle();
-		$titleDBkey = $title->getPrefixedDBkey();
-		$tags = ( is_array( $filterTags ) ? ':' . implode( ',', $filterTags ) : '' );
-		$key = "{$wgDBname}:wikiarticlefeedsextension:{$titleDBkey}:{$feedFormat}{$tags}";
-		$timekey = $key . ':timestamp';
-		$cachedFeed = false;
-		$feedLastmod = $messageMemc->get( $timekey );
-
-		# Dermine last modification time for either the article itself or an included template
-		$lastmod = $article->getTimestamp();
-		$templates = $title->getTemplateLinksFrom();
-		foreach ( $templates as $tTitle ) {
-			$tArticle = new Article( $tTitle );
-			$tmod = $tArticle->getTimestamp();
-			$lastmod = ( $lastmod > $tmod ? $lastmod : $tmod );
-		}
-
-		# Check for availability of existing cached **
-		if ( ( $wgFeedCacheTimeout > 0 ) && $feedLastmod ) {
-			$feedLastmodTS = wfTimestamp( TS_UNIX, $feedLastmod );
-			if (
-				time() - $feedLastmodTS < $wgFeedCacheTimeout ||
-				$feedLastmodTS > wfTimestamp( TS_UNIX, $lastmod )
-			) {
-				wfDebugLog( 'WikiArticleFeeds', "Loading feed from cache ($key; $feedLastmod; $lastmod)...\n" );
-				$cachedFeed = $messageMemc->get( $key );
-			} else {
-				wfDebugLog( 'WikiArticleFeeds', "Cached feed timestamp check failed ($feedLastmod; $lastmod)\n" );
-			}
-		}
-
-		# Display cachedFeed, or generate one from scratch
-		global $wgWikiArticleFeedsSkipCache;
-		if ( !$wgWikiArticleFeedsSkipCache && is_string( $cachedFeed ) ) {
-			wfDebugLog( 'WikiArticleFeeds', 'Outputting cached feed' );
-			$feed = new $wgFeedClasses[$feedFormat]( $title->getText(), '', $title->getFullURL() . ' - Feed' );
-			ob_start();
-			$feed->httpHeaders();
-			echo $cachedFeed;
-		} else {
-			wfDebugLog( 'WikiArticleFeeds', 'Rendering new feed and caching it' );
-			ob_start();
-			self::generateWikiFeed( $article, $feedFormat, $filterTags );
-			$cachedFeed = ob_get_contents();
-			ob_end_flush();
-
-			$expire = 3600; # One hour
-			$messageMemc->set( $key, $cachedFeed );
-			$messageMemc->set( $timekey, wfTimestamp( TS_MW ), $expire );
-		}
-
-		# False to indicate that other action handlers should not process this page
-		return false;
-	}
-
-	/**
 	 * Purges all associated feeds when an Article is purged.
 	 *
 	 * @param WikiPage $wikiPage The WikiPage which is being purged.
@@ -302,6 +227,9 @@ class WikiArticleFeeds {
 	 */
 	public static function onArticlePurge( WikiPage $wikiPage ) {
 		global $messageMemc, $wgDBname;
+		if ( !$messageMemc ) {
+			$messageMemc = ObjectCache::getLocalClusterInstance();
+		}
 		$titleDBKey = $wikiPage->mTitle->getPrefixedDBkey();
 		$keyPrefix = "{$wgDBname}:wikiarticlefeedsextension:{$titleDBKey}";
 		$messageMemc->delete( "{$keyPrefix}:atom:timestamp" );
@@ -322,7 +250,7 @@ class WikiArticleFeeds {
 		global $wgOut, $wgServer, $wgFeedClasses, $wgVersion;
 
 		# Setup, handle redirects
-		if ( $article->isRedirect() ) {
+		if ( $article->getPage()->isRedirect() ) {
 			$rtitle = $article->getContentObject()->getRedirectTarget();
 			if ( $rtitle ) {
 				$article = new Article( $rtitle );
@@ -330,6 +258,24 @@ class WikiArticleFeeds {
 		}
 		$title = $article->getTitle();
 		$feedUrl = $title->getFullURL();
+
+		# Determine fallback author/date for items where no signature could be
+		# detected in the content (e.g. no linked username + timestamp found).
+		# Since transclusions are already flattened into plain HTML by the time
+		# we see them, we can't attribute a specific paragraph to the exact
+		# subpage it came from -- so we use whichever page (this article or any
+		# page it transcludes) was edited most recently as a reasonable default.
+		$fallbackWikiPage = $article->getPage();
+		$fallbackDate = wfTimestamp( TS_MW, $fallbackWikiPage->getTimestamp() );
+		$fallbackAuthor = $fallbackWikiPage->getUserText();
+		foreach ( $title->getTemplateLinksFrom() as $tTitle ) {
+			$tWikiPage = WikiPage::factory( $tTitle );
+			$tDate = wfTimestamp( TS_MW, $tWikiPage->getTimestamp() );
+			if ( $tDate > $fallbackDate ) {
+				$fallbackDate = $tDate;
+				$fallbackAuthor = $tWikiPage->getUserText();
+			}
+		}
 
 		# Parse page into feed items.
 		$content = $wgOut->parseAsContent( ContentHandler::getContentText( $article->getPage()->getContent() ) .
@@ -434,6 +380,11 @@ class WikiArticleFeeds {
 					date_default_timezone_set( 'UTC' );
 					$date = date( 'YmdHis', strtotime( $timestring ) );
 					date_default_timezone_set( $tempTimezone );
+				} else {
+					# No signature detected in this item; fall back so the feed
+					# entry still has the author/updated fields Atom requires.
+					$author = $fallbackAuthor;
+					$date = $fallbackDate;
 				}
 
 				# Set default 'article section' feed-link
@@ -490,3 +441,96 @@ class WikiArticleFeeds {
 	}
 
 } /* class WikiArticleFeeds */
+
+/**
+ * Handles action=feed, registered via $wgActions (extension.json "Actions").
+ * Replaces the old onUnknownAction hook, which was removed from MediaWiki core.
+ */
+class WikiArticleFeedsFeedAction extends FormlessAction {
+
+	public function getName() {
+		return 'feed';
+	}
+
+	public function onView() {
+		$article = $this->getArticle();
+		$request = $this->getRequest();
+
+		global $wgFeedClasses, $wgFeedCacheTimeout, $wgDBname, $messageMemc;
+
+		if ( !$messageMemc ) {
+			$messageMemc = ObjectCache::getLocalClusterInstance();
+		}
+
+		# Get query parameters
+		$feedFormat = $request->getVal( 'feed', 'atom' );
+		$filterTags = $request->getVal( 'tags', null );
+
+		# Process requested tags for use in keys
+		if ( $filterTags ) {
+			$filterTags = explode( ',', $filterTags );
+			array_walk( $filterTags, 'trim' );
+			sort( $filterTags );
+		}
+
+		if ( !isset( $wgFeedClasses[$feedFormat] ) ) {
+			wfHttpError( 500, 'Internal Server Error', 'Unsupported feed type.' );
+			return null;
+		}
+
+		# Setup cache-checking vars
+		$title = $article->getTitle();
+		$titleDBkey = $title->getPrefixedDBkey();
+		$tags = ( is_array( $filterTags ) ? ':' . implode( ',', $filterTags ) : '' );
+		$key = "{$wgDBname}:wikiarticlefeedsextension:{$titleDBkey}:{$feedFormat}{$tags}";
+		$timekey = $key . ':timestamp';
+		$cachedFeed = false;
+		$feedLastmod = $messageMemc->get( $timekey );
+
+		# Determine last modification time for either the article itself or an included template
+		$lastmod = $article->getPage()->getTimestamp();
+		$templates = $title->getTemplateLinksFrom();
+		foreach ( $templates as $tTitle ) {
+			$tArticle = new Article( $tTitle );
+			$tmod = $tArticle->getPage()->getTimestamp();
+			$lastmod = ( $lastmod > $tmod ? $lastmod : $tmod );
+		}
+
+		# Check for availability of existing cached feed
+		if ( ( $wgFeedCacheTimeout > 0 ) && $feedLastmod ) {
+			$feedLastmodTS = wfTimestamp( TS_UNIX, $feedLastmod );
+			if (
+				time() - $feedLastmodTS < $wgFeedCacheTimeout ||
+				$feedLastmodTS > wfTimestamp( TS_UNIX, $lastmod )
+			) {
+				wfDebugLog( 'WikiArticleFeeds', "Loading feed from cache ($key; $feedLastmod; $lastmod)...\n" );
+				$cachedFeed = $messageMemc->get( $key );
+			} else {
+				wfDebugLog( 'WikiArticleFeeds', "Cached feed timestamp check failed ($feedLastmod; $lastmod)\n" );
+			}
+		}
+
+		# Display cachedFeed, or generate one from scratch
+		global $wgWikiArticleFeedsSkipCache;
+		if ( !$wgWikiArticleFeedsSkipCache && is_string( $cachedFeed ) ) {
+			wfDebugLog( 'WikiArticleFeeds', 'Outputting cached feed' );
+			$feed = new $wgFeedClasses[$feedFormat]( $title->getText(), '', $title->getFullURL() . ' - Feed' );
+			ob_start();
+			$feed->httpHeaders();
+			echo $cachedFeed;
+		} else {
+			wfDebugLog( 'WikiArticleFeeds', 'Rendering new feed and caching it' );
+			ob_start();
+			WikiArticleFeeds::generateWikiFeed( $article, $feedFormat, $filterTags );
+			$cachedFeed = ob_get_contents();
+			ob_end_flush();
+
+			$expire = 3600; # One hour
+			$messageMemc->set( $key, $cachedFeed );
+			$messageMemc->set( $timekey, wfTimestamp( TS_MW ), $expire );
+		}
+
+		return null;
+	}
+
+}

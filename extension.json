@@ -1,0 +1,40 @@
+{
+	"name": "WikiArticleFeeds",
+	"version": "1.0.0",
+	"author": [
+		"Jim Wilson",
+		"Thomas Gries",
+    "Jim Tittsler"
+	],
+	"url": "https://wikieducator.org/Extension:WikiArticleFeeds",
+	"descriptionmsg": "wikiarticlefeeds-desc",
+	"license-name": "MIT",
+	"type": "specialpage",
+	"AutoloadClasses": {
+		"WikiArticleFeeds": "WikiArticleFeeds_body.php",
+		"WikiArticleFeedsFeedAction": "WikiArticleFeeds_body.php"
+	},
+	"Actions": {
+		"feed": "WikiArticleFeedsFeedAction"
+	},
+	"MessagesDirs": {
+		"WikiArticleFeeds": [
+			"i18n"
+		]
+	},
+	"ExtensionMessagesFiles": {
+		"WikiArticleFeedsMagic": "WikiArticleFeeds.i18n.magic.php"
+	},
+	"TrackingCategories": [
+		"wikiarticlefeeds-tracking-category"
+	],
+	"Hooks": {
+		"ParserFirstCallInit": "WikiArticleFeeds::setup",
+		"SkinTemplateToolboxEnd": "WikiArticleFeeds::addToolboxLinks",
+		"OutputPageBeforeHTML": "WikiArticleFeeds::addWikiFeedHeaders",
+		"HtmlPageLinkRendererEnd": "WikiArticleFeeds::onHtmlPageLinkRendererEnd",
+		"ArticlePurge": "WikiArticleFeeds::onArticlePurge",
+		"ParserAfterTidy": "WikiArticleFeeds::onParserAfterTidy"
+	},
+	"manifest_version": 2
+}
