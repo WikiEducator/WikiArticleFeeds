@@ -71,7 +71,7 @@ class WikiArticleFeeds{
 
 		# Test for feedBurner presence
 		if ( preg_match( '/<!-- BURN_FEED ([0-9a-zA-Z\\+\\/]+=*) -->/m', $text, $matches ) ) {
-			$name = @unserialize( @base64_decode( $matches[1] ) );
+			$name = ( preg_match( '/^s:[0-9]+:"/', $wafS = base64_decode( $matches[1] ) ) ? @unserialize( $wafS ) : false );
 			if ( $name ) {
 				$rssArr['href'] = 'http://feeds.feedburner.com/' . urlencode( $name ) . '?format=xml';
 				$atomArr['href'] = 'http://feeds.feedburner.com/' . urlencode( $name ) . '?format=xml';
@@ -147,7 +147,7 @@ class WikiArticleFeeds{
 		$text = ob_get_contents();
 		ob_end_clean();
 		if ( preg_match( '/<!-- BURN_FEED ([0-9a-zA-Z\\+\\/]+=*) -->/m', $text, $matches ) ) {
-			$feedBurnerName = @unserialize( @base64_decode( $matches[1] ) );
+			$feedBurnerName = ( preg_match( '/^s:[0-9]+:"/', $wafS = base64_decode( $matches[1] ) ) ? @unserialize( $wafS ) : false );
 			if ( $feedBurnerName ) {
 				$feeds = array( 'rss' => 'RSS', 'atom' => 'Atom' );
 				foreach ( $feeds as $feed => $name ) {
@@ -363,7 +363,7 @@ class WikiArticleFeeds{
 					if ( preg_match_all( '/<!-- ITEM_TAGS ([0-9a-zA-Z\\+\\/]+=*) -->/m', $seg, $matches ) ) {
 						$tags = array();
 						foreach ( $matches[1] as $encodedString ) {
-							$t = @unserialize( @base64_decode( $encodedString ) );
+							$t = ( preg_match( '/^s:[0-9]+:"/', $wafS = base64_decode( $encodedString ) ) ? @unserialize( $wafS ) : false );
 							if ( $t ) {
 								$t = explode( ',', $t );
 								array_walk( $t, 'trim' );
