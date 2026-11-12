@@ -1,15 +1,18 @@
 {
 	"name": "WikiArticleFeeds",
-	"version": "1.0.0",
+	"version": "2.0.0",
 	"author": [
 		"Jim Wilson",
 		"Thomas Gries",
-    "Jim Tittsler"
+		"Jim Tittsler"
 	],
 	"url": "https://wikieducator.org/Extension:WikiArticleFeeds",
 	"descriptionmsg": "wikiarticlefeeds-desc",
 	"license-name": "MIT",
-	"type": "specialpage",
+	"type": "parserhook",
+	"requires": {
+		"MediaWiki": ">= 1.35.0"
+	},
 	"AutoloadClasses": {
 		"WikiArticleFeeds": "WikiArticleFeeds_body.php",
 		"WikiArticleFeedsFeedAction": "WikiArticleFeeds_body.php"
@@ -30,7 +33,7 @@
 	],
 	"Hooks": {
 		"ParserFirstCallInit": "WikiArticleFeeds::setup",
-		"SkinTemplateToolboxEnd": "WikiArticleFeeds::addToolboxLinks",
+		"SidebarBeforeOutput": "WikiArticleFeeds::onSidebarBeforeOutput",
 		"OutputPageBeforeHTML": "WikiArticleFeeds::addWikiFeedHeaders",
 		"HtmlPageLinkRendererEnd": "WikiArticleFeeds::onHtmlPageLinkRendererEnd",
 		"ArticlePurge": "WikiArticleFeeds::onArticlePurge",

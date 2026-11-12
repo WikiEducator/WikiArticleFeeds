@@ -24,40 +24,37 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 class WikiArticleFeeds {
-	const VERSION = '1.0.0 20260705';
+	const VERSION = '2.0.0 20261112';
 
-	public static function getGlobalInstance() {
-		global $wgWikiArticleFeeds;
-		if ( !$wgWikiArticleFeeds ) {
-			$wgWikiArticleFeeds = new self();
-		}
-		return $wgWikiArticleFeeds;
-	}
+	/** Cache lifetime (seconds) of generated feeds */
+	const CACHE_TTL = 86400;
 
-	function feedStart( $text, $params = [], Parser $parser ) {
+	public static function feedStart( $text, $params, Parser $parser ) {
 		$parser->addTrackingCategory( 'wikiarticlefeeds-tracking-category' );
 		return '<!-- FEED_START -->';
 	}
 
-	function feedEnd( $text, $params = [] ) {
+	public static function feedEnd( $text, $params ) {
 		return '<!-- FEED_END -->';
 	}
 
-	function burnFeed( $text, $params = [] ) {
-		return ( $params['name'] ? '<!-- BURN_FEED ' . base64_encode( serialize( $params['name'] ) ) . ' -->' : '' );
+	/**
+	 * <feedBurner> is no longer supported (FeedBurner is defunct);
+	 * the tag is still accepted so old pages don't show it as text.
+	 */
+	public static function burnFeed( $text, $params ) {
+		return '';
 	}
 
-	function itemTagsTag( $text, $params = [] ) {
+	public static function itemTagsTag( $text, $params ) {
 		return ( $text ? '<!-- ITEM_TAGS ' . base64_encode( serialize( $text ) ) . ' -->' : '' );
 	}
 
-	function itemTagsFunction( Parser $parser ) {
-		$tags = func_get_args();
-		array_shift( $tags );
+	public static function itemTagsFunction( Parser $parser, ...$tags ) {
 		return ( !empty( $tags ) ? '<pre>@ITEMTAGS@' . base64_encode( serialize( implode( ',', $tags ) ) ) . '@ITEMTAGS@</pre>' : '' );
 	}
 
-	function itemTagsPlaceholderCorrections( Parser $parser, &$text ) {
+	public static function onParserAfterTidy( Parser $parser, &$text ) {
 		$text = preg_replace(
 			'|<pre>@ITEMTAGS@([0-9a-zA-Z\\+\\/]+=*)@ITEMTAGS@</pre>|',
 			'<!-- ITEM_TAGS $1 -->',
@@ -66,21 +63,53 @@ class WikiArticleFeeds {
 		return true;
 	}
 
-	public static function onParserAfterTidy( Parser $parser, &$text ) {
-		return self::getGlobalInstance()->itemTagsPlaceholderCorrections( $parser, $text );
+	/**
+	 * Decode an ITEM_TAGS payload.  The payload can be written by any
+	 * editor, so never let unserialize() create objects.
+	 *
+	 * @param string $encoded base64 of a serialized string
+	 * @return string[] trimmed, non-empty tags
+	 */
+	private static function decodeTags( $encoded ) {
+		$t = @unserialize( base64_decode( $encoded ), [ 'allowed_classes' => false ] );
+		if ( !is_string( $t ) ) {
+			return [];
+		}
+		return array_values( array_filter( array_map( 'trim', explode( ',', $t ) ), 'strlen' ) );
 	}
 
 	# Sets up the WikiArticleFeeds Parser hooks
 	public static function setup( Parser $parser ) {
-		$instance = self::getGlobalInstance();
-
-		$parser->setHook( 'startFeed', [ $instance, 'feedStart' ] );
-		$parser->setHook( 'endFeed', [ $instance, 'feedEnd' ] );
-		$parser->setHook( 'feedBurner', [ $instance, 'burnFeed' ] );
-		$parser->setHook( 'itemTags', [ $instance, 'itemTagsTag' ] );
-		$parser->setFunctionHook( 'itemtags', [ $instance, 'itemTagsFunction' ] );
+		$parser->setHook( 'startFeed', [ self::class, 'feedStart' ] );
+		$parser->setHook( 'endFeed', [ self::class, 'feedEnd' ] );
+		$parser->setHook( 'feedBurner', [ self::class, 'burnFeed' ] );
+		$parser->setHook( 'itemTags', [ self::class, 'itemTagsTag' ] );
+		$parser->setFunctionHook( 'itemtags', [ self::class, 'itemTagsFunction' ] );
 
 		return true;
+	}
+
+	/**
+	 * Base URL of a page's feeds; append 'rss' or 'atom'.
+	 *
+	 * @param Title $title
+	 * @return string
+	 */
+	private static function feedBaseUrl( Title $title ) {
+		return $title->getFullURL( [ 'action' => 'feed', 'feed' => '' ] );
+	}
+
+	/**
+	 * Cache key of a generated feed.
+	 *
+	 * @param BagOStuff $cache
+	 * @param Title $title
+	 * @param string $format 'rss' or 'atom'
+	 * @param string $tags comma separated filter tags, or ''
+	 * @return string
+	 */
+	public static function cacheKey( BagOStuff $cache, Title $title, $format, $tags = '' ) {
+		return $cache->makeKey( 'wikiarticlefeeds', md5( $title->getPrefixedDBkey() ), $format, md5( $tags ) );
 	}
 
 	/**
@@ -95,40 +124,23 @@ class WikiArticleFeeds {
 			return true;
 		}
 
-		$rssArr = [
+		$title = $out->getTitle();
+		$baseUrl = self::feedBaseUrl( $title );
+		$out->addLink( [
 			'rel' => 'alternate',
 			'type' => 'application/rss+xml',
-			'title' => $out->getTitle()->getText() . ' - RSS 2.0',
-		];
-		$atomArr = [
+			'title' => $title->getText() . ' - RSS 2.0',
+			'href' => $baseUrl . 'rss',
+		] );
+		$out->addLink( [
 			'rel' => 'alternate',
 			'type' => 'application/atom+xml',
-			'title' => $out->getTitle()->getText() . ' - Atom 0.3',
-		];
+			'title' => $title->getText() . ' - Atom',
+			'href' => $baseUrl . 'atom',
+		] );
 
-		# Test for feedBurner presence
-		if ( preg_match( '/<!-- BURN_FEED ([0-9a-zA-Z\\+\\/]+=*) -->/m', $text, $matches ) ) {
-			$name = @unserialize( @base64_decode( $matches[1] ) );
-			if ( $name ) {
-				$rssArr['href'] = 'http://feeds.feedburner.com/' . urlencode( $name ) . '?format=xml';
-				$atomArr['href'] = 'http://feeds.feedburner.com/' . urlencode( $name ) . '?format=xml';
-			}
-		}
-
-		# If it's not being fed by feedBurner, do it ourselves!
-		if ( !array_key_exists( 'href', $rssArr ) || !$rssArr['href'] ) {
-			global $wgServer, $wgScript;
-
-			$baseUrl = $wgServer . $wgScript . '?title=' . $out->getTitle()->getDBkey() . '&action=feed&feed=';
-			$rssArr['href'] = $baseUrl . 'rss';
-			$atomArr['href'] = $baseUrl . 'atom';
-		}
-
-		$out->addLink( $rssArr );
-		$out->addLink( $atomArr );
-
-		global $wgWikiFeedPresent;
-		$wgWikiFeedPresent = true;
+		# Remembered for onSidebarBeforeOutput()
+		$out->setProperty( 'wikiarticlefeeds', true );
 
 		# True to indicate that other action handlers should continue to process this page
 		return true;
@@ -154,88 +166,52 @@ class WikiArticleFeeds {
 	}
 
 	/**
-	 * Adds the Wiki feed links to the bottom of the toolbox in MonoBook or like-minded skins.
+	 * Adds RSS and Atom links to the sidebar toolbox of pages that contain feeds.
 	 *
-	 * @param BaseTemplate $template Instance of MonoBookTemplate or other BaseTemplate
+	 * @param Skin $skin
+	 * @param array &$sidebar
+	 * @return bool
 	 */
-	public static function addToolboxLinks( $template ) {
-		global $wgServer, $wgScript, $wgWikiFeedPresent;
-
+	public static function onSidebarBeforeOutput( $skin, &$sidebar ) {
 		# Short-circuit if there are no Feeds present
-		if ( !$wgWikiFeedPresent ) {
+		if ( !$skin->getOutput()->getProperty( 'wikiarticlefeeds' ) ) {
 			return true;
 		}
 
-		$title = $template->getSkin()->getTitle();
-
-		if ( $title->getNamespace() < NS_MAIN ) {
+		$title = $skin->getTitle();
+		if ( !$title || $title->getNamespace() < NS_MAIN ) {
 			return true;
 		}
 
-		$result = '<li id="feedlinks">';
-
-		# Test for feedBurner presence
-		$burned = false;
-		ob_start();
-		$template->html( 'bodytext' );
-		$text = ob_get_contents();
-		ob_end_clean();
-		if ( preg_match( '/<!-- BURN_FEED ([0-9a-zA-Z\\+\\/]+=*) -->/m', $text, $matches ) ) {
-			$feedBurnerName = @unserialize( @base64_decode( $matches[1] ) );
-			if ( $feedBurnerName ) {
-				$feeds = [
-					'rss' => 'RSS',
-					'atom' => 'Atom'
-				];
-				foreach ( $feeds as $feed => $name ) {
-					$result .=
-					'<span id="feed-' . htmlspecialchars( $feed ) . '">' .
-					'<a class="feedlink" href="http://feeds.feedburner.com/' . urlencode( $feedBurnerName ) . '?format=xml">' .
-					htmlspecialchars( $name ) . '</a>&#160;</span>';
-				}
-				$burned = true;
-			}
-		}
-
-		# Generate regular RSS and Atom feeds if not fed by feedBurner
-		if ( !$burned ) {
-			$dbKey = $title->getPrefixedDBkey();
-			$baseUrl = $wgServer . $wgScript . '?title=' . $dbKey . '&action=feed&feed=';
-			$feeds = [
-				'rss' => 'RSS',
-				'atom' => 'Atom'
+		$baseUrl = self::feedBaseUrl( $title );
+		foreach ( [ 'rss' => 'RSS', 'atom' => 'Atom' ] as $feed => $name ) {
+			$sidebar['TOOLBOX']['wikiarticlefeeds-' . $feed] = [
+				'text' => $name,
+				'href' => $baseUrl . $feed,
+				'id' => 'feed-' . $feed,
+				'class' => 'feedlink',
 			];
-			foreach ( $feeds as $feed => $name ) {
-				$result .=
-				'<span id="feed-' . htmlspecialchars( $feed ) . '">' .
-				'<a class="feedlink" href="' . htmlspecialchars( $baseUrl . $feed ) . '">' .
-				htmlspecialchars( $name ) . '</a>&#160;</span>';
-			}
 		}
 
-		echo $result . '</li>';
-
-		# True to indicate that other action handlers should continue to process this page
 		return true;
 	}
 
 	/**
-	 * Purges all associated feeds when an Article is purged.
+	 * Purges the unfiltered feeds when an Article is purged.  Tag-filtered
+	 * feeds are refreshed once $wgFeedCacheTimeout has passed, because a
+	 * purge also updates the page's touched timestamp.
 	 *
 	 * @param WikiPage $wikiPage The WikiPage which is being purged.
 	 * @return bool Always true to permit additional hook processing.
 	 */
 	public static function onArticlePurge( WikiPage $wikiPage ) {
-		global $messageMemc, $wgDBname;
-		if ( !$messageMemc ) {
-			$messageMemc = ObjectCache::getLocalClusterInstance();
+		$cache = ObjectCache::getLocalClusterInstance();
+		$title = $wikiPage->getTitle();
+		foreach ( [ 'rss', 'atom' ] as $format ) {
+			$key = self::cacheKey( $cache, $title, $format );
+			$cache->delete( $key );
+			$cache->delete( $key . ':timestamp' );
 		}
-		$titleDBKey = $wikiPage->mTitle->getPrefixedDBkey();
-		$keyPrefix = "{$wgDBname}:wikiarticlefeedsextension:{$titleDBKey}";
-		$messageMemc->delete( "{$keyPrefix}:atom:timestamp" );
-		$messageMemc->delete( "{$keyPrefix}:atom" );
-		$messageMemc->delete( "{$keyPrefix}:rss" );
-		$messageMemc->delete( "{$keyPrefix}:rss:timestamp" );
 		return true;
 	}
 
@@ -247,7 +223,7 @@ class WikiArticleFeeds {
 	 * @param array|null $filterTags Tags to use in filtering out items.
 	 */
 	public static function generateWikiFeed( $article, $feedFormat = 'atom', $filterTags = null ) {
-		global $wgOut, $wgServer, $wgFeedClasses, $wgVersion;
+		global $wgServer, $wgFeedClasses;
 
 		# Setup, handle redirects
 		if ( $article->getPage()->isRedirect() ) {
@@ -278,7 +254,7 @@ class WikiArticleFeeds {
 		}
 
 		# Parse page into feed items.
-		$content = $wgOut->parseAsContent( ContentHandler::getContentText( $article->getPage()->getContent() ) .
+		$content = $article->getContext()->getOutput()->parseAsContent( ContentHandler::getContentText( $article->getPage()->getContent() ) .
 			"\n__NOEDITSECTION__ __NOTOC__" );
 		preg_match_all(
 			'/<!--\\s*FEED_START\\s*-->(.*?)<!--\\s*FEED_END\\s*-->/s',
@@ -335,13 +311,7 @@ class WikiArticleFeeds {
 					if ( preg_match_all( '/<!-- ITEM_TAGS ([0-9a-zA-Z\\+\\/]+=*) -->/m', $seg, $matches ) ) {
 						$tags = [];
 						foreach ( $matches[1] as $encodedString ) {
-							$t = @unserialize( @base64_decode( $encodedString ) );
-							if ( $t ) {
-								$t = explode( ',', $t );
-								array_walk( $t, 'trim' );
-								sort( $t );
-								$tags = array_merge( $tags, $t );
-							}
+							$tags = array_merge( $tags, self::decodeTags( $encodedString ) );
 						}
 						$tags = array_unique( $tags );
 						if ( !count( array_intersect( $tags, $filterTags ) ) ) {
@@ -423,10 +393,7 @@ class WikiArticleFeeds {
 		$feed = new $wgFeedClasses[$feedFormat]( $feedTitle, $feedDescription, $feedId );
 
 		# Push feed header
-		$tempWgVersion = $wgVersion;
-		$wgVersion .= ' via WikiArticleFeeds ' . self::VERSION;
 		$feed->outHeader();
-		$wgVersion = $tempWgVersion;
 
 		# Sort all items by date and push onto feed
 		krsort( $items );
@@ -456,11 +423,9 @@ class WikiArticleFeedsFeedAction extends FormlessAction {
 		$article = $this->getArticle();
 		$request = $this->getRequest();
 
-		global $wgFeedClasses, $wgFeedCacheTimeout, $wgDBname, $messageMemc;
+		global $wgFeedClasses, $wgFeedCacheTimeout;
 
-		if ( !$messageMemc ) {
-			$messageMemc = ObjectCache::getLocalClusterInstance();
-		}
+		$cache = ObjectCache::getLocalClusterInstance();
 
 		# Get query parameters
 		$feedFormat = $request->getVal( 'feed', 'atom' );
@@ -468,32 +433,29 @@ class WikiArticleFeedsFeedAction extends FormlessAction {
 
 		# Process requested tags for use in keys
 		if ( $filterTags ) {
-			$filterTags = explode( ',', $filterTags );
-			array_walk( $filterTags, 'trim' );
+			$filterTags = array_unique( array_filter( array_map( 'trim', explode( ',', $filterTags ) ), 'strlen' ) );
 			sort( $filterTags );
 		}
 
 		if ( !isset( $wgFeedClasses[$feedFormat] ) ) {
-			wfHttpError( 500, 'Internal Server Error', 'Unsupported feed type.' );
+			wfHttpError( 400, 'Bad Request', 'Unsupported feed type.' );
 			return null;
 		}
 
 		# Setup cache-checking vars
 		$title = $article->getTitle();
-		$titleDBkey = $title->getPrefixedDBkey();
-		$tags = ( is_array( $filterTags ) ? ':' . implode( ',', $filterTags ) : '' );
-		$key = "{$wgDBname}:wikiarticlefeedsextension:{$titleDBkey}:{$feedFormat}{$tags}";
+		$tags = ( $filterTags ? implode( ',', $filterTags ) : '' );
+		$key = WikiArticleFeeds::cacheKey( $cache, $title, $feedFormat, $tags );
 		$timekey = $key . ':timestamp';
 		$cachedFeed = false;
-		$feedLastmod = $messageMemc->get( $timekey );
+		$feedLastmod = $cache->get( $timekey );
 
-		# Determine last modification time for either the article itself or an included template
-		$lastmod = $article->getPage()->getTimestamp();
-		$templates = $title->getTemplateLinksFrom();
-		foreach ( $templates as $tTitle ) {
-			$tArticle = new Article( $tTitle );
-			$tmod = $tArticle->getPage()->getTimestamp();
-			$lastmod = ( $lastmod > $tmod ? $lastmod : $tmod );
+		# Determine last modification time for either the article itself
+		# (edit or purge) or an included template
+		$page = $article->getPage();
+		$lastmod = max( $page->getTimestamp(), $page->getTouched() );
+		foreach ( $title->getTemplateLinksFrom() as $tTitle ) {
+			$lastmod = max( $lastmod, WikiPage::factory( $tTitle )->getTimestamp() );
 		}
 
 		# Check for availability of existing cached feed
@@ -504,7 +466,7 @@ class WikiArticleFeedsFeedAction extends FormlessAction {
 				$feedLastmodTS > wfTimestamp( TS_UNIX, $lastmod )
 			) {
 				wfDebugLog( 'WikiArticleFeeds', "Loading feed from cache ($key; $feedLastmod; $lastmod)...\n" );
-				$cachedFeed = $messageMemc->get( $key );
+				$cachedFeed = $cache->get( $key );
 			} else {
 				wfDebugLog( 'WikiArticleFeeds', "Cached feed timestamp check failed ($feedLastmod; $lastmod)\n" );
 			}
@@ -515,7 +477,6 @@ class WikiArticleFeedsFeedAction extends FormlessAction {
 		if ( !$wgWikiArticleFeedsSkipCache && is_string( $cachedFeed ) ) {
 			wfDebugLog( 'WikiArticleFeeds', 'Outputting cached feed' );
 			$feed = new $wgFeedClasses[$feedFormat]( $title->getText(), '', $title->getFullURL() . ' - Feed' );
-			ob_start();
 			$feed->httpHeaders();
 			echo $cachedFeed;
 		} else {
@@ -525,9 +486,8 @@ class WikiArticleFeedsFeedAction extends FormlessAction {
 			$cachedFeed = ob_get_contents();
 			ob_end_flush();
 
-			$expire = 3600; # One hour
-			$messageMemc->set( $key, $cachedFeed );
-			$messageMemc->set( $timekey, wfTimestamp( TS_MW ), $expire );
+			$cache->set( $key, $cachedFeed, WikiArticleFeeds::CACHE_TTL );
+			$cache->set( $timekey, wfTimestamp( TS_MW ), WikiArticleFeeds::CACHE_TTL );
 		}
 
 		return null;
