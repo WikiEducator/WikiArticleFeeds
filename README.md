@@ -3,7 +3,7 @@
 A MediaWiki extension that publishes RSS or Atom feeds generated from
 ordinary wiki pages.
 
-Requires MediaWiki 1.35 or later.
+Requires MediaWiki 1.43 or later and PHP 8.3 or later.
 
 ## Installation
 
@@ -45,11 +45,23 @@ comma separated).
 * `$wgForceArticleFeedSectionLinks` — link items to their page section
   instead of the first link in the item.
 * `$wgWikiArticleFeedsSkipCache` — always regenerate feeds (for debugging).
-* `$wgFeedCacheTimeout` (core) — minimum age before a cached feed is
-  checked against page edits.
+
+Generated feeds are cached for a day in the main WAN object cache.  A
+feed is regenerated when its page is edited or purged, or when a page it
+transcludes is edited.
+
+### Development
+
+    composer install && composer test
+    npm install && npm test
 
 ## History
 
+* 3.0.0  MediaWiki 1.43 and PHP 8.3: namespaced classes in `src/`, hook
+         handlers and action with injected services, both heading
+         formats of the parser, feeds made from the parser cache and
+         cached in the WAN object cache, complete URLs for links to
+         page sections, no double escaping of titles and links.
 * 2.0.0  MediaWiki 1.35: sidebar links via SidebarBeforeOutput, safe
          decoding of item tags, tag trimming fixed, `<feedBurner>`
          ignored (FeedBurner is defunct), legacy loader removed.

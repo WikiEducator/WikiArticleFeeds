@@ -1,6 +1,6 @@
 {
 	"name": "WikiArticleFeeds",
-	"version": "2.0.0",
+	"version": "3.0.0",
 	"author": [
 		"Jim Wilson",
 		"Thomas Gries",
@@ -11,14 +11,25 @@
 	"license-name": "MIT",
 	"type": "parserhook",
 	"requires": {
-		"MediaWiki": ">= 1.35.0"
+		"MediaWiki": ">= 1.43.0",
+		"platform": {
+			"php": ">= 8.3"
+		}
 	},
-	"AutoloadClasses": {
-		"WikiArticleFeeds": "WikiArticleFeeds_body.php",
-		"WikiArticleFeedsFeedAction": "WikiArticleFeeds_body.php"
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\WikiArticleFeeds\\": "src/"
 	},
 	"Actions": {
-		"feed": "WikiArticleFeedsFeedAction"
+		"feed": {
+			"class": "MediaWiki\\Extension\\WikiArticleFeeds\\FeedAction",
+			"services": [
+				"MainWANObjectCache",
+				"RedirectLookup",
+				"RevisionLookup",
+				"UrlUtils",
+				"WikiPageFactory"
+			]
+		}
 	},
 	"MessagesDirs": {
 		"WikiArticleFeeds": [
@@ -31,13 +42,26 @@
 	"TrackingCategories": [
 		"wikiarticlefeeds-tracking-category"
 	],
+	"HookHandlers": {
+		"main": {
+			"class": "MediaWiki\\Extension\\WikiArticleFeeds\\Hooks"
+		}
+	},
 	"Hooks": {
-		"ParserFirstCallInit": "WikiArticleFeeds::setup",
-		"SidebarBeforeOutput": "WikiArticleFeeds::onSidebarBeforeOutput",
-		"OutputPageBeforeHTML": "WikiArticleFeeds::addWikiFeedHeaders",
-		"HtmlPageLinkRendererEnd": "WikiArticleFeeds::onHtmlPageLinkRendererEnd",
-		"ArticlePurge": "WikiArticleFeeds::onArticlePurge",
-		"ParserAfterTidy": "WikiArticleFeeds::onParserAfterTidy"
+		"ParserFirstCallInit": "main",
+		"OutputPageParserOutput": "main",
+		"SidebarBeforeOutput": "main",
+		"HtmlPageLinkRendererEnd": "main"
+	},
+	"config": {
+		"ForceArticleFeedSectionLinks": {
+			"value": false,
+			"description": "Link feed items to their section of the page, instead of to the first link in the item."
+		},
+		"WikiArticleFeedsSkipCache": {
+			"value": false,
+			"description": "Generate feeds on every request, without caching them. For debugging."
+		}
 	},
 	"manifest_version": 2
 }
